@@ -191,6 +191,7 @@ class Corpus:
     all_premises: List[Premise]
     """All premises in the entire corpus.
     """
+    imported_premises_cache: Dict[str, List[Premise]]
 
     def __init__(self, jsonl_path: str) -> None:
         """Construct a :class:`Corpus` object from a ``corpus.jsonl`` data file."""
@@ -306,8 +307,8 @@ class Corpus:
         """Perform a batch of nearest neighbour search."""
         similarities = batch_context_emb @ premise_embeddings.t()
         idxs_batch = similarities.argsort(dim=1, descending=True).tolist()
-        results = [[] for _ in batch_context]
-        scores = [[] for _ in batch_context]
+        results: List[List[Premise]] = [[] for _ in batch_context]
+        scores: List[List[float]] = [[] for _ in batch_context]
 
         for j, (ctx, idxs) in enumerate(zip(batch_context, idxs_batch)):
             accessible_premises = self.get_accessible_premises(
