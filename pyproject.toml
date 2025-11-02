@@ -3,7 +3,7 @@ requires = ["setuptools>=64.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "reprover"
+name = "ReProver"
 version = "0.1"
 
 [tool.setuptools]
