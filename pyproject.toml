@@ -7,7 +7,8 @@ name = "ReProver"
 version = "0.1"
 
 [tool.setuptools]
-py-modules = ["common"]
+packages = ["ReProver", "ReProver.retrieval", "ReProver.generation", "ReProver.prover"]
+package-dir = {"ReProver" = "."}
 
-[tool.setuptools.packages.find]
-include = ["retrieval*", "generation*", "prover*"]
+[tool.setuptools.package-data]
+ReProver = ["*.py"]
