@@ -1,30 +1,28 @@
-"""Script for evaluating the prover on theorems extracted by LeanDojo.
-"""
+"""Script for evaluating the prover on theorems extracted by LeanDojo."""
 
 import os
-
-os.environ["RAY_DEDUP_LOGS"] = "0"
 import uuid
 import json
 import pickle
 import hashlib
 import argparse
 from loguru import logger
-from lean_dojo import Theorem
 from typing import List, Tuple, Optional
 from lean_dojo import LeanGitRepo, Theorem, Pos, is_available_in_cache
 
-from common import set_logger
-from prover.proof_search import Status, DistributedProver
+from ReProver.common import set_logger
+from ReProver.prover.proof_search import Status, DistributedProver
+
+os.environ["RAY_DEDUP_LOGS"] = "0"
 
 
 def _get_theorems(
     data_path: str,
     split: str,
-    file_path: str,
-    full_name: str,
-    name_filter: str,
-    num_theorems: int,
+    file_path: Optional[str],
+    full_name: Optional[str],
+    name_filter: Optional[str],
+    num_theorems: Optional[int],
 ) -> Tuple[LeanGitRepo, List[Theorem], List[Pos]]:
     repo, theorems, positions = _get_theorems_from_files(
         data_path,
@@ -77,8 +75,8 @@ def _get_theorems_from_files(
             f"{x[0].file_path}:{x[0].full_name}".encode()
         ).hexdigest()
     )
-    theorems, positions = zip(*theorems_and_positions)
-    theorems, positions = list(theorems), list(positions)
+    theorems_tup, positions_tup = zip(*theorems_and_positions)
+    theorems, positions = list(theorems_tup), list(positions_tup)
 
     if num_theorems is not None:
         theorems = theorems[:num_theorems]

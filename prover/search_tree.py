@@ -1,5 +1,4 @@
-"""Definitions of the search tree used by the prover.
-"""
+"""Definitions of the search tree used by the prover."""
 
 import math
 from enum import Enum
@@ -32,7 +31,7 @@ class Node(ABC):
 
     @property
     @abstractmethod
-    def distance_to_proof(self) -> int:
+    def distance_to_proof(self) -> float:
         "The smallest number of steps to a proof."
         raise NotImplementedError
 
@@ -45,17 +44,35 @@ class Node(ABC):
 @dataclass
 class ProofFinishedNode(Node):
     inner: ProofFinished
-    status = Status.PROVED
-    distance_to_proof = 0
-    is_terminal = True
+
+    @property
+    def status(self) -> Status:
+        return Status.PROVED
+
+    @property
+    def distance_to_proof(self) -> float:
+        return 0.0
+
+    @property
+    def is_terminal(self) -> bool:
+        return True
 
 
 @dataclass
 class ErrorNode(Node):
     inner: Union[LeanError, DojoTacticTimeoutError, ProofGivenUp]
-    status = Status.FAILED
-    distance_to_proof = math.inf
-    is_terminal = True
+
+    @property
+    def status(self) -> Status:
+        return Status.FAILED
+
+    @property
+    def distance_to_proof(self) -> float:
+        return math.inf
+
+    @property
+    def is_terminal(self) -> bool:
+        return True
 
 
 @total_ordering
@@ -93,7 +110,9 @@ class InternalNode(Node):
     # basis by children, since proving or failing a child may prove or fail this node.
     _status: Status = field(default=Status.OPEN, init=False, compare=False, repr=True)
 
-    is_terminal = False  # type: ignore[override]
+    @property
+    def is_terminal(self) -> bool:
+        return False
 
     # Number of steps separating this node from the end of a proof along the
     # optimal path. If unproved, infinity. Updated as needed by children.
@@ -102,12 +121,12 @@ class InternalNode(Node):
     )
 
     @property
-    def out_edges(self):
+    def out_edges(self) -> Optional[List["Edge"]]:
         return self._out_edges
 
     # This setter implements exploring this node
     @out_edges.setter
-    def out_edges(self, out_edges: Iterable["Edge"]) -> Optional[List["Edge"]]:
+    def out_edges(self, out_edges: Iterable["Edge"]) -> None:
         if self.is_explored:
             raise RuntimeError("Node is already explored.")
 
@@ -129,7 +148,7 @@ class InternalNode(Node):
     def status(self, s):
         self._status = s
 
-    def _recompute_status(self):
+    def _recompute_status(self) -> None:
         """
         Recursively update the status of the current node and its ancestors.
         """
@@ -158,7 +177,7 @@ class InternalNode(Node):
     def distance_to_proof(self) -> float:
         return self._distance_to_proof
 
-    def _recompute_distance_to_proof(self):
+    def _recompute_distance_to_proof(self) -> None:
         """
         Recursively update the distance_to_proof of the current node and its ancestors.
         """
@@ -187,6 +206,7 @@ class InternalNode(Node):
         if self.status != Status.PROVED:
             return None
         assert self.is_explored
+        assert self.out_edges is not None
 
         proving_edge = min(
             self.out_edges,
@@ -208,7 +228,7 @@ class InternalNode(Node):
     # Debug #
     #########
 
-    def check_invariants(self):
+    def check_invariants(self) -> None:
         """
         Perform some sanity checks.
         """
@@ -216,13 +236,15 @@ class InternalNode(Node):
             assert self.status == Status.OPEN
             return  # Nothing more can be said about unexplored nodes
 
+        assert self.out_edges is not None
+
         for edge in self.in_edges:
             assert edge.dst is self
 
         if self.out_edges == []:
             assert self.status == Status.FAILED
         else:
-            for edge in self.out_edges:  # type: ignore
+            for edge in self.out_edges:
                 assert edge.src is self
 
         if self.status == Status.PROVED:
@@ -238,13 +260,13 @@ class InternalNode(Node):
             assert self.out_edges is not None
             assert all(edge.dst.status == Status.FAILED for edge in self.out_edges)
             assert self.distance_to_proof == math.inf
-            assert self.extract_proof() == None
+            assert self.extract_proof() is None
         elif self.status == Status.OPEN:
             assert self.out_edges
             assert not any(edge.dst.status == Status.PROVED for edge in self.out_edges)
             assert not all(edge.dst.status == Status.FAILED for edge in self.out_edges)
             assert self.distance_to_proof == math.inf
-            assert self.extract_proof() == None
+            assert self.extract_proof() is None
 
 
 @dataclass

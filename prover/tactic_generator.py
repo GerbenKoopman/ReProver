@@ -1,4 +1,3 @@
-import ray
 import openai
 from lean_dojo import Pos
 from loguru import logger
@@ -6,8 +5,8 @@ from typing import List, Tuple
 from abc import ABC, abstractmethod
 from transformers import AutoModelForSeq2SeqLM, AutoModelForCausalLM, AutoTokenizer
 
-from retrieval.model import PremiseRetriever
-from common import remove_marks, zip_strict, format_augmented_state
+from ReProver.retrieval.model import PremiseRetriever
+from ReProver.common import remove_marks, zip_strict, format_augmented_state
 
 
 class TacticGenerator(ABC):
@@ -40,8 +39,7 @@ class GPT4TacticGenerator(TacticGenerator):
         threshold: float = 0.9,
     ):
         super().__init__()
-        openai.organization = organization
-        openai.api_key = api_key
+        self.client = openai.OpenAI(organization=organization, api_key=api_key)
         self.model = model
         self.default_prompt = "You are an expert in theorem proving in Lean. We are trying to solve the Lean theorem 'THEOREM_FULL_NAME' from the mathlib file 'FILE_PATH'. The current tactic state is: 'TACTIC_STATE'. Suggest exactly NUM_SAMPLES unique tactics to progress in solving 'THEOREM_FULL_NAME', along with their confidence levels as a float between 0 and 1. Rank them in order of effectiveness. Present the tactics and their confidence levels as comma-separated tuples in this format: #(tactic_{1}, confidence_{1})#, #(tactic_{2}, confidence_{2})#, ..., #(tactic_{NUM_SAMPLES}, confidence_{NUM_SAMPLES})#."
         self.max_tokens = max_tokens
@@ -71,24 +69,24 @@ class GPT4TacticGenerator(TacticGenerator):
             response = None
             # https://platform.openai.com/docs/guides/error-codes/python-library-error-types
             try:
-                response = openai.ChatCompletion.create(
+                response = self.client.chat.completions.create(
                     model=self.model,
                     messages=[{"role": "user", "content": prompt}],
                     # temperature=0,
                     max_tokens=self.max_tokens,
                     # stop="E:" #
                 )
-            except openai.error.APIError as e:
-                # Handle API error here, e.g. retry or log
-                logger.info(f"OpenAI API returned an API Error: {e}")
-                continue
-            except openai.error.APIConnectionError as e:
+            except openai.APIConnectionError as e:
                 # Handle connection error here
                 logger.info(f"Failed to connect to OpenAI API: {e}")
                 continue
-            except openai.error.RateLimitError as e:
+            except openai.RateLimitError as e:
                 # Handle rate limit error (we recommend using exponential backoff)
                 logger.info(f"OpenAI API request exceeded rate limit: {e}")
+                continue
+            except openai.APIError as e:
+                # Handle API error here, e.g. retry or log
+                logger.info(f"OpenAI API returned an API Error: {e}")
                 continue
             except Exception as e:
                 logger.info(e)
@@ -98,7 +96,9 @@ class GPT4TacticGenerator(TacticGenerator):
                 continue
 
             logger.info(f"GPT-4 response: {response}")
-            output = response["choices"][0]["message"]["content"]
+            output = response.choices[0].message.content
+            if output is None:
+                continue
             indices = []
 
             for i, c in enumerate(output):
@@ -225,9 +225,9 @@ class HuggingFaceGenerator(TacticGenerator):
 
         # Return the output.
         raw_output_text = self.tokenizer.batch_decode(
-            output.sequences, skip_special_tokens=True
+            getattr(output, "sequences"), skip_special_tokens=True
         )
-        raw_scores = output.sequences_scores.tolist()
+        raw_scores = getattr(output, "sequences_scores").tolist()
 
         output_text = []
         output_score = []
