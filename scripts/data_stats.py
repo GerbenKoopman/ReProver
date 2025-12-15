@@ -8,8 +8,9 @@ from pathlib import Path
 from loguru import logger
 from lean_dojo import Pos
 from collections import defaultdict
+from typing import Dict
 
-from common import Corpus
+from ReProver.common import Corpus
 
 
 def main() -> None:
@@ -33,7 +34,7 @@ def main() -> None:
 
     tactics = []
     num_accessed_premises = []
-    num_theorems_by_topic = defaultdict(int)
+    num_theorems_by_topic: Dict[str, int] = defaultdict(int)
 
     for data in (data_train, data_val, data_test):
         for ex in tqdm(data):

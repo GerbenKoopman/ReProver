@@ -16,7 +16,9 @@ for filename in glob(sys.argv[1]):
             num_total += 1
             if "Proved" in line:
                 num_correct += 1
-                total_time.append(float(TOTAL_TIME_REGEX.search(line)["time"]))
+                m = TOTAL_TIME_REGEX.search(line)
+                if m:
+                    total_time.append(float(m.group("time")))
 
     if num_total == 0:
         logger.info("Pass@1: N/A")
