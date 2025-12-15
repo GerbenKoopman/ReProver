@@ -2,6 +2,7 @@
 
 import os
 import torch
+import torch.utils.checkpoint
 import pickle
 import numpy as np
 from tqdm import tqdm
@@ -9,10 +10,10 @@ from lean_dojo import Pos
 from loguru import logger
 import pytorch_lightning as pl
 import torch.nn.functional as F
-from typing import List, Dict, Any, Tuple, Union
+from typing import List, Dict, Any, Tuple, Union, cast
 from transformers import AutoModelForTextEncoding, AutoTokenizer
 
-from common import (
+from ReProver.common import (
     Premise,
     Context,
     Corpus,
@@ -47,11 +48,15 @@ class PremiseRetriever(pl.LightningModule):
 
     @classmethod
     def load(cls, ckpt_path: str, device, freeze: bool) -> "PremiseRetriever":
-        return load_checkpoint(cls, ckpt_path, device, freeze)
+        return cast("PremiseRetriever", load_checkpoint(cls, ckpt_path, device, freeze))
 
     @classmethod
     def load_hf(
-        cls, ckpt_path: str, max_seq_len: int, device: int, dtype=None
+        cls,
+        ckpt_path: str,
+        max_seq_len: int,
+        device: Union[int, torch.device],
+        dtype=None,
     ) -> "PremiseRetriever":
         model = PremiseRetriever(ckpt_path, 0.0, 0, max_seq_len, 100).to(device).eval()
         if dtype is not None:
@@ -87,16 +92,18 @@ class PremiseRetriever(pl.LightningModule):
     @property
     def embedding_size(self) -> int:
         """Return the size of the feature vector produced by ``encoder``."""
-        return self.encoder.config.hidden_size
+        return cast(int, self.encoder.config.hidden_size)
 
     def _encode(
         self, input_ids: torch.LongTensor, attention_mask: torch.LongTensor
-    ) -> torch.FloatTensor:
+    ) -> torch.Tensor:
         """Encode a premise or a context into a feature vector."""
         if cpu_checkpointing_enabled(self):
-            hidden_states = torch.utils.checkpoint.checkpoint(
+            out = torch.utils.checkpoint.checkpoint(
                 self.encoder, input_ids, attention_mask, use_reentrant=False
-            )[0]
+            )
+            assert out is not None
+            hidden_states = out[0]
         else:
             hidden_states = self.encoder(
                 input_ids=input_ids,
@@ -122,7 +129,7 @@ class PremiseRetriever(pl.LightningModule):
         neg_premises_ids: torch.LongTensor,
         neg_premises_mask: torch.LongTensor,
         label: torch.LongTensor,
-    ) -> torch.FloatTensor:
+    ) -> torch.Tensor:
         """Compute the contrastive loss for premise retrieval."""
         # Encode the query and positive/negative documents.
         context_emb = self._encode(context_ids, context_mask)
@@ -137,7 +144,7 @@ class PremiseRetriever(pl.LightningModule):
         similarity = torch.mm(context_emb, all_premise_embs.t())
         assert -1 <= similarity.min() <= similarity.max() <= 1
         loss = F.mse_loss(similarity, label)
-        return loss
+        return cast(torch.Tensor, loss)
 
     ############
     # Training #
@@ -145,10 +152,10 @@ class PremiseRetriever(pl.LightningModule):
 
     def on_fit_start(self) -> None:
         if self.logger is not None:
-            self.logger.log_hyperparams(self.hparams)
+            self.logger.log_hyperparams(dict(self.hparams))
             logger.info(f"Logging to {self.trainer.log_dir}")
 
-        self.corpus = self.trainer.datamodule.corpus
+        self.corpus = cast(Any, self.trainer).datamodule.corpus
         self.corpus_embeddings = None
         self.embeddings_staled = True
 
@@ -165,13 +172,13 @@ class PremiseRetriever(pl.LightningModule):
         self.log(
             "loss_train", loss, on_epoch=True, sync_dist=True, batch_size=len(batch)
         )
-        return loss
+        return cast(torch.Tensor, loss)
 
-    def on_train_batch_end(self, outputs, batch, _) -> None:
+    def on_train_batch_end(self, outputs, batch, batch_idx) -> None:
         """Mark the embeddings as staled after a training batch."""
         self.embeddings_staled = True
 
-    def configure_optimizers(self) -> Dict[str, Any]:
+    def configure_optimizers(self) -> Any:
         return get_optimizers(
             self.parameters(), self.trainer, self.lr, self.warmup_steps
         )
@@ -210,13 +217,14 @@ class PremiseRetriever(pl.LightningModule):
         self.embeddings_staled = False
 
     def on_validation_start(self) -> None:
-        self.reindex_corpus(self.trainer.datamodule.eval_batch_size)
+        self.reindex_corpus(cast(Any, self.trainer).datamodule.eval_batch_size)
 
     def validation_step(self, batch: Dict[str, Any], batch_idx: int) -> None:
         """Retrieve premises and calculate metrics such as Recall@K and MRR."""
         # Retrieval.
         context_emb = self._encode(batch["context_ids"], batch["context_mask"])
         assert not self.embeddings_staled
+        assert self.corpus_embeddings is not None
         retrieved_premises, _ = self.corpus.get_nearest_premises(
             self.corpus_embeddings,
             batch["context"],
@@ -225,7 +233,7 @@ class PremiseRetriever(pl.LightningModule):
         )
 
         # Evaluation & logging.
-        recall = [[] for _ in range(self.num_retrieved)]
+        recall: List[List[float]] = [[] for _ in range(self.num_retrieved)]
         MRR = []
         num_with_premises = 0
 
@@ -244,16 +252,15 @@ class PremiseRetriever(pl.LightningModule):
                 recall[j].append(float(TP) / len(all_pos_premises))
                 if premises[j] in all_pos_premises and not first_match_found:
                     MRR.append(1.0 / (j + 1))
-                    first_match_found = True
             if not first_match_found:
                 MRR.append(0.0)
 
-        recall = [100 * np.mean(_) for _ in recall]
+        recall_means = [float(100 * np.mean(_)) for _ in recall]
 
         for j in range(self.num_retrieved):
             self.log(
                 f"Recall@{j+1}_val",
-                recall[j],
+                recall_means[j],
                 on_epoch=True,
                 sync_dist=True,
                 batch_size=num_with_premises,
@@ -261,7 +268,7 @@ class PremiseRetriever(pl.LightningModule):
 
         self.log(
             "MRR",
-            np.mean(MRR),
+            float(np.mean(MRR)),
             on_epoch=True,
             sync_dist=True,
             batch_size=num_with_premises,
@@ -270,17 +277,17 @@ class PremiseRetriever(pl.LightningModule):
     ##############
     # Prediction #
     ##############
-
     def on_predict_start(self) -> None:
-        self.corpus = self.trainer.datamodule.corpus
+        self.corpus = cast(Any, self.trainer).datamodule.corpus
         self.corpus_embeddings = None
         self.embeddings_staled = True
-        self.reindex_corpus(self.trainer.datamodule.eval_batch_size)
-        self.predict_step_outputs = []
+        self.reindex_corpus(cast(Any, self.trainer).datamodule.eval_batch_size)
+        self.predict_step_outputs: List[Dict[str, Any]] = []
 
     def predict_step(self, batch: Dict[str, Any], _):
         context_emb = self._encode(batch["context_ids"], batch["context_mask"])
         assert not self.embeddings_staled
+        assert self.corpus_embeddings is not None
         retrieved_premises, scores = self.corpus.get_nearest_premises(
             self.corpus_embeddings,
             batch["context"],
@@ -360,6 +367,7 @@ class PremiseRetriever(pl.LightningModule):
             ctx_tokens.attention_mask.to(self.device),
         )
 
+        assert self.corpus_embeddings is not None
         if self.corpus_embeddings.device != context_emb.device:
             self.corpus_embeddings = self.corpus_embeddings.to(context_emb.device)
         if self.corpus_embeddings.dtype != context_emb.dtype:

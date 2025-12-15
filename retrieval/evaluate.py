@@ -37,10 +37,10 @@ def _eval(data, preds_map) -> Tuple[float, float, float]:
             else:
                 MRR.append(0.0)
 
-    R1 = 100 * np.mean(R1)
-    R10 = 100 * np.mean(R10)
-    MRR = np.mean(MRR)
-    return R1, R10, MRR
+    r1_mean = 100 * np.mean(R1)
+    r10_mean = 100 * np.mean(R10)
+    mrr_mean = np.mean(MRR)
+    return float(r1_mean), float(r10_mean), float(mrr_mean)
 
 
 def main() -> None:

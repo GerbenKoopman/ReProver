@@ -1,13 +1,12 @@
-"""Script for indexing the corpus using the retriever.
-"""
+"""Script for indexing the corpus using the retriever."""
 
 import torch
 import pickle
 import argparse
 from loguru import logger
 
-from common import IndexedCorpus
-from retrieval.model import PremiseRetriever
+from ReProver.common import IndexedCorpus
+from ReProver.retrieval.model import PremiseRetriever
 
 
 def main() -> None:
@@ -34,6 +33,7 @@ def main() -> None:
     model.load_corpus(args.corpus_path)
     model.reindex_corpus(batch_size=args.batch_size)
 
+    assert model.corpus_embeddings is not None
     pickle.dump(
         IndexedCorpus(model.corpus, model.corpus_embeddings.to(torch.float32).cpu()),
         open(args.output_path, "wb"),

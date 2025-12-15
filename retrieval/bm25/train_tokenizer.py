@@ -6,8 +6,8 @@ from tokenizers.models import BPE
 from tokenizers.trainers import BpeTrainer
 from tokenizers.pre_tokenizers import Whitespace
 
-from common import Corpus
-from retrieval.datamodule import RetrievalDataset
+from ReProver.common import Corpus
+from ReProver.retrieval.datamodule import RetrievalDataset
 
 
 def main() -> None:
@@ -19,7 +19,7 @@ def main() -> None:
     logger.info(args)
 
     tokenizer = Tokenizer(BPE(unk_token="[UNK]"))
-    tokenizer.pre_tokenizer = Whitespace()
+    setattr(tokenizer, "pre_tokenizer", Whitespace())
     trainer = BpeTrainer(
         vocab_size=args.vocab_size,
         special_tokens=["[PAD]", "[UNK]", "[CLS]", "[SEP]", "[MASK]"],
@@ -30,7 +30,6 @@ def main() -> None:
 
     ds_train = RetrievalDataset(
         [os.path.join(args.data_path, "train.json")],
-        False,
         corpus,
         num_negatives=0,
         num_in_file_negatives=0,

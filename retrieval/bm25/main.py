@@ -10,15 +10,15 @@ import numpy as np
 from tqdm import tqdm
 import multiprocessing
 from loguru import logger
-from common import Corpus
+from ReProver.common import Corpus
 from lean_dojo import Pos
 from rank_bm25 import BM25Okapi
 from tokenizers import Tokenizer
-from typing import List, Dict, Any
+from typing import List, Dict, Any, cast
 from ray.util.actor_pool import ActorPool
 
 
-from common import Context, get_all_pos_premises
+from ReProver.common import Context, get_all_pos_premises
 
 
 def _process_theorem(
@@ -131,7 +131,7 @@ def main() -> None:
     if args.num_cpus > 1:
         pool = ActorPool(
             [
-                TheoremProcessor.remote(
+                cast(Any, TheoremProcessor).remote(
                     args.tokenizer_path,
                     args.data_path,
                     args.num_retrieved,

@@ -10,13 +10,12 @@ from loguru import logger
 from copy import deepcopy
 from lean_dojo import Pos
 import pytorch_lightning as pl
-from lean_dojo import LeanGitRepo
-from typing import Optional, List
+from typing import Optional, List, Any, cast
 from transformers import AutoTokenizer
 from torch.utils.data import Dataset, DataLoader
 
 
-from common import Context, Corpus, Batch, Example, get_all_pos_premises
+from ReProver.common import Context, Corpus, Batch, Example, get_all_pos_premises
 
 
 class RetrievalDataset(Dataset):
@@ -172,7 +171,7 @@ class RetrievalDataset(Dataset):
                         ]
                     label[j, k] = float(pos_premise_k in all_pos_premises)
 
-            batch["label"] = label
+            batch["label"] = cast(Any, label)
             batch["neg_premises"] = []
             batch["neg_premises_ids"] = []
             batch["neg_premises_mask"] = []
@@ -191,9 +190,9 @@ class RetrievalDataset(Dataset):
                 batch["neg_premises_mask"].append(tokenized_neg_premise.attention_mask)
 
         # Copy the rest of the fields.
-        for k in examples[0].keys():
-            if k not in batch:
-                batch[k] = [ex[k] for ex in examples]
+        for key in examples[0].keys():
+            if key not in batch:
+                batch[key] = [ex[key] for ex in examples]
 
         return batch
 
@@ -223,9 +222,6 @@ class RetrievalDataModule(pl.LightningDataModule):
 
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         self.corpus = Corpus(corpus_path)
-
-        metadata = json.load(open(os.path.join(data_path, "../metadata.json")))
-        repo = LeanGitRepo(**metadata["from_repo"])
 
     def prepare_data(self) -> None:
         pass
