@@ -15,7 +15,7 @@ from pytorch_lightning.utilities.deepspeed import (
 )
 from transformers import get_constant_schedule_with_warmup
 from deepspeed.ops.adam import FusedAdam, DeepSpeedCPUAdam
-from typing import Optional, List, Dict, Any, Tuple, Generator
+from typing import Optional, List, Dict, Any, Tuple, Generator, cast
 from pytorch_lightning.strategies.deepspeed import DeepSpeedStrategy
 
 
@@ -98,7 +98,7 @@ class Premise:
 
         for i in range(len(fields)):
             prefix = ".".join(fields[i:])
-            new_code = re.sub(f"(?<=\s)«?{prefix}»?", annot_full_name, code)
+            new_code = re.sub(rf"(?<=\s)«?{prefix}»?", annot_full_name, code)
             if new_code != code:
                 code = new_code
                 break
@@ -184,7 +184,7 @@ class Corpus:
     """
 
     transitive_dep_graph: nx.DiGraph
-    """Transitive closure of the dependency graph among files. 
+    """Transitive closure of the dependency graph among files.
     There is an edge from file X to Y iff X import Y (directly or indirectly).
     """
 
@@ -195,7 +195,7 @@ class Corpus:
 
     def __init__(self, jsonl_path: str) -> None:
         """Construct a :class:`Corpus` object from a ``corpus.jsonl`` data file."""
-        dep_graph = nx.DiGraph()
+        dep_graph: nx.DiGraph = nx.DiGraph()
         self.all_premises = []
 
         logger.info(f"Building the corpus from {jsonl_path}")
@@ -220,7 +220,7 @@ class Corpus:
         self.fill_cache()
 
     def _get_file(self, path: str) -> File:
-        return self.transitive_dep_graph.nodes[path]["file"]
+        return cast(File, self.transitive_dep_graph.nodes[path]["file"])
 
     def __len__(self) -> int:
         return len(self.all_premises)
@@ -299,7 +299,7 @@ class Corpus:
 
     def get_nearest_premises(
         self,
-        premise_embeddings: torch.FloatTensor,
+        premise_embeddings: torch.Tensor,
         batch_context: List[Context],
         batch_context_emb: torch.Tensor,
         k: int,
@@ -332,9 +332,9 @@ class IndexedCorpus:
     """A corpus with premise embeddings."""
 
     corpus: Corpus
-    embeddings: torch.FloatTensor
+    embeddings: torch.Tensor
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         assert self.embeddings.device == torch.device("cpu")
         assert len(self.embeddings) == len(self.corpus)
 
@@ -369,10 +369,10 @@ def format_augmented_state(
         if random.random() < p_drop:
             continue
         p_str = f"{p.serialize()}\n\n"
-        l = len(bytes(p_str.encode("utf-8")))
-        if length + l > max_premises_len:
+        p_len = len(bytes(p_str.encode("utf-8")))
+        if length + p_len > max_premises_len:
             continue
-        length += l
+        length += p_len
         aug_s = p_str + aug_s
 
     aug_s += s
@@ -386,6 +386,7 @@ def get_optimizers(
     strategy = trainer.strategy
 
     if isinstance(strategy, DeepSpeedStrategy):
+        assert strategy.config is not None
         if "offload_optimizer" in strategy.config["zero_optimization"]:
             logger.info("Optimizing with DeepSpeedCPUAdam")
             optimizer = DeepSpeedCPUAdam(parameters, lr=lr, adamw_mode=True)
@@ -450,6 +451,7 @@ def cpu_checkpointing_enabled(pl_module) -> bool:
         return (
             trainer.strategy is not None
             and isinstance(trainer.strategy, DeepSpeedStrategy)
+            and trainer.strategy.config is not None
             and trainer.strategy.config["activation_checkpointing"]["cpu_checkpointing"]
         )
     except RuntimeError:
