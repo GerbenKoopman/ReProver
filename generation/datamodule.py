@@ -10,7 +10,7 @@ from typing import Optional, List, Dict, Any
 from torch.utils.data import DataLoader, Dataset
 from transformers import AutoTokenizer, ByT5Tokenizer
 
-from common import (
+from ReProver.common import (
     Batch,
     Corpus,
     Example,
@@ -23,8 +23,8 @@ class GeneratorDataset(Dataset):
     def __init__(
         self,
         data_path: str,
-        corpus: Corpus,
-        preds: List[Dict[str, Any]],
+        corpus: Optional[Corpus],
+        preds: Optional[Dict[tuple, Any]],
         max_inp_seq_len: int,
         max_oup_seq_len: int,
         p_drop: float,
@@ -132,7 +132,7 @@ class GeneratorDataModule(pl.LightningDataModule):
         super().__init__()
         self.data_path = data_path
         if corpus_path is not None:
-            self.corpus = Corpus(corpus_path)
+            self.corpus: Optional[Corpus] = Corpus(corpus_path)
         else:
             self.corpus = None
         self.batch_size = batch_size
@@ -145,7 +145,7 @@ class GeneratorDataModule(pl.LightningDataModule):
 
         if preds_path is None:
             logger.info("Without retrieval data")
-            self.preds = None
+            self.preds: Optional[Dict[tuple, Any]] = None
         else:
             logger.info("With retrieval data")
             self.preds = {}
